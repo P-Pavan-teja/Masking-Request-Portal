@@ -26,5 +26,5 @@ The Snowflake Column Masking Request Portal provides a user-friendly interface f
 -> Snowflake account with appropriate access permissions
 -> Streamlit in Snowflake enabled for your account
 -> A metadata table for storing requests (see Setup section)
-. Email integration configured in Snowflake (for notifications)
+* Email integration configured in Snowflake (for notifications)
 
