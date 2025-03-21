@@ -1,0 +1,21 @@
+-- Create metadata table for storing masking requests
+CREATE OR REPLACE TABLE METADATA_TABLE (
+    Request_ID VARCHAR(50),
+    S_No INTEGER,
+    Fully_Qualified_Table_Name VARCHAR(255),
+    Field_name VARCHAR(100),
+    Data_type VARCHAR(50),
+    User_ID VARCHAR(100),
+    Created_Date TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- Configure email integration for notifications
+CREATE OR REPLACE NOTIFICATION INTEGRATION <simple_email_integration>
+  TYPE = EMAIL
+  ENABLED = TRUE;
+
+-- Grant necessary privileges (adjust as needed)
+GRANT USAGE ON DATABASE <DATABASE_NAME> TO ROLE <YOUR_APP_ROLE>;
+GRANT USAGE ON SCHEMA <DATABASE_NAME.SCHEMA_NAME> TO ROLE <YOUR_APP_ROLE>;
+GRANT SELECT, INSERT ON TABLE <DATABASE_NAME.SCHEMA_NAME>METADATA_TABLE TO ROLE <YOUR_APP_ROLE>;
+GRANT USAGE ON NOTIFICATION INTEGRATION <simple_email_integration> TO ROLE <YOUR_APP_ROLE>;
