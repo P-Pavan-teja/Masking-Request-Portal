@@ -13,7 +13,6 @@ st.set_page_config(
 st.title(":lock: Snowflake Column Masking Request Portal")
 st.markdown("Submit requests to apply masking policies to sensitive data columns")
 
-
 # Get active Snowflake session
 try:
     session = get_active_session()
@@ -32,207 +31,237 @@ try:
         st.session_state.request_id = None
     if 'submit_clicked' not in st.session_state:
         st.session_state.submit_clicked = False
+    if 'request_another' not in st.session_state:
+        st.session_state.request_another = False
+    if 'show_new_request_options' not in st.session_state:
+        st.session_state.show_new_request_options = False
     
-    # Get the current user ID from Snowflake
-    current_user_result = session.sql("SELECT CURRENT_USER() AS USER").collect()
-    current_user = current_user_result[0]['USER'] if current_user_result else "UNKNOWN_USER"
+    # Fetch the current user from Snowflake
+    current_user = None
+    try:
+        current_user_df = session.sql("SELECT CURRENT_USER() AS user").collect()
+        if current_user_df:
+            current_user = current_user_df[0]['USER']
+            st.success(f"Logged in as: {current_user}")
+        else:
+            st.error("Unable to retrieve the current user.")
+    except Exception as e:
+        st.error(f"Error retrieving current user: {e}")
+
+    # Function to reset form to start a new request
+    def reset_form():
+        st.session_state.selected_database = None
+        st.session_state.selected_schema = None
+        st.session_state.selected_table = None
+        st.session_state.request_data = None
+        st.session_state.request_id = None
+        st.session_state.submit_clicked = False
+        st.session_state.generate_request = False
+        st.session_state.request_another = False
+        st.session_state.show_new_request_options = False
+        st.rerun()
     
-    # Display the current user ID (optional)
-    st.info(f"Logged in as: {current_user}")
-    
-    # Get list of databases
-    databases_df = session.sql("SHOW DATABASES").collect()
-    database_names = [row['name'] for row in databases_df] if databases_df else []
-    
-    # Add a placeholder option at the beginning of the list
-    database_options = ["-- Select a Database --"] + database_names
-    
-    # Database selector with default as the placeholder
-    selected_database = st.selectbox(
-        "Select Database", 
-        database_options,
-        index=0,
-        key="database_selector"
-    )
-    
-    # Only proceed if an actual database is selected (not the placeholder)
-    if selected_database != "-- Select a Database --":
-        st.session_state.selected_database = selected_database
-        
-        # Get list of schemas for the selected database
-        schemas_df = session.sql(f"SHOW SCHEMAS IN DATABASE {selected_database}").collect()
-        schema_names = [row['name'] for row in schemas_df] if schemas_df else []
+    # Only show selection menus if not showing "request another" options
+    if not st.session_state.show_new_request_options:
+        # Get list of databases
+        databases_df = session.sql("SHOW DATABASES").collect()
+        database_names = [row['name'] for row in databases_df] if databases_df else []
         
         # Add a placeholder option at the beginning of the list
-        schema_options = ["-- Select a Schema --"] + schema_names
+        database_options = ["-- Select a Database --"] + database_names
         
-        # Schema selector with default as the placeholder
-        selected_schema = st.selectbox(
-            "Select Schema", 
-            schema_options,
+        # Database selector with default as the placeholder
+        selected_database = st.selectbox(
+            "Select Database", 
+            database_options,
             index=0,
-            key="schema_selector"
+            key="database_selector"
         )
         
-        # Only proceed if an actual schema is selected (not the placeholder)
-        if selected_schema != "-- Select a Schema --":
-            st.session_state.selected_schema = selected_schema
+        # Only proceed if an actual database is selected (not the placeholder)
+        if selected_database != "-- Select a Database --":
+            st.session_state.selected_database = selected_database
             
-            # Get list of tables for the selected database and schema
-            tables_df = session.sql(f"SHOW TABLES IN {selected_database}.{selected_schema}").collect()
-            table_names = [row['name'] for row in tables_df] if tables_df else []
+            # Get list of schemas for the selected database
+            schemas_df = session.sql(f"SHOW SCHEMAS IN DATABASE {selected_database}").collect()
+            schema_names = [row['name'] for row in schemas_df] if schemas_df else []
             
             # Add a placeholder option at the beginning of the list
-            table_options = ["-- Select a Table --"] + table_names
+            schema_options = ["-- Select a Schema --"] + schema_names
             
-            # Table selector with default as the placeholder
-            selected_table = st.selectbox(
-                "Select Table", 
-                table_options,
+            # Schema selector with default as the placeholder
+            selected_schema = st.selectbox(
+                "Select Schema", 
+                schema_options,
                 index=0,
-                key="table_selector"
+                key="schema_selector"
             )
             
-            # Only proceed if an actual table is selected (not the placeholder)
-            if selected_table != "-- Select a Table --":
-                st.session_state.selected_table = selected_table
-                st.success(f"Selected: {selected_database}.{selected_schema}.{selected_table}")
+            # Only proceed if an actual schema is selected (not the placeholder)
+            if selected_schema != "-- Select a Schema --":
+                st.session_state.selected_schema = selected_schema
                 
-                # After table selection, display columns for masking selection
-                st.markdown("---")
-                st.subheader("Column Selection for Masking")
-                st.markdown("Select columns that require data masking:")
+                # Get list of tables for the selected database and schema
+                tables_df = session.sql(f"SHOW TABLES IN {selected_database}.{selected_schema}").collect()
+                table_names = [row['name'] for row in tables_df] if tables_df else []
                 
-                # Get table columns
-                try:
-                    columns_df = session.sql(f"DESCRIBE TABLE {selected_database}.{selected_schema}.{selected_table}").collect()
+                # Add a placeholder option at the beginning of the list
+                table_options = ["-- Select a Table --"] + table_names
+                
+                # Table selector with default as the placeholder
+                selected_table = st.selectbox(
+                    "Select Table", 
+                    table_options,
+                    index=0,
+                    key="table_selector"
+                )
+                
+                # Only proceed if an actual table is selected (not the placeholder)
+                if selected_table != "-- Select a Table --":
+                    st.session_state.selected_table = selected_table
+                    st.success(f"Selected: {selected_database}.{selected_schema}.{selected_table}")
                     
-                    # Create a DataFrame with column information
-                    column_data = []
-                    for row in columns_df:
-                        column_data.append({
-                            "Column Name": row['name'],
-                            "Data Type": row['type'],
-                            "Select for Masking": False
-                        })
+                    # After table selection, display columns for masking selection
+                    st.markdown("---")
+                    st.subheader("Column Selection for Masking")
+                    st.markdown("Select columns that require data masking:")
                     
-                    if column_data:
-                        # Display columns in a data editor for selection
-                        edited_df = st.data_editor(
-                            pd.DataFrame(column_data),
-                            disabled=["Column Name", "Data Type"],
-                            hide_index=True,
-                            key="column_selection"
-                        )
+                    # Get table columns
+                    try:
+                        columns_df = session.sql(f"DESCRIBE TABLE {selected_database}.{selected_schema}.{selected_table}").collect()
                         
-                        # Get selected columns
-                        selected_columns = edited_df[edited_df["Select for Masking"] == True]["Column Name"].tolist()
+                        # Create a DataFrame with column information
+                        column_data = []
+                        for row in columns_df:
+                            column_data.append({
+                                "Column Name": row['name'],
+                                "Data Type": row['type'],
+                                "Select for Masking": False
+                            })
                         
-                        if selected_columns:
-                            st.write("Selected columns for masking:")
-                            for col in selected_columns:
-                                st.code(f"{selected_database}.{selected_schema}.{selected_table}.{col}")
+                        if column_data:
+                            # Display columns in a data editor for selection
+                            edited_df = st.data_editor(
+                                pd.DataFrame(column_data),
+                                disabled=["Column Name", "Data Type"],
+                                hide_index=True,
+                                key="column_selection"
+                            )
                             
-                            # Add a button to generate the request
-                            if 'generate_request' not in st.session_state:
-                                st.session_state.generate_request = False
+                            # Get selected columns
+                            selected_columns = edited_df[edited_df["Select for Masking"] == True]["Column Name"].tolist()
+                            
+                            if selected_columns:
+                                st.write("Selected columns for masking:")
+                                for col in selected_columns:
+                                    st.code(f"{selected_database}.{selected_schema}.{selected_table}.{col}")
                                 
-                            # Add a button to generate the request
-                            if st.button("Generate Masking Request") or st.session_state.generate_request:
-                                st.session_state.generate_request = True
-                                
-                                # Generate a request ID if not already generated
-                                if not st.session_state.request_id:
-                                    # Use current date/time for unique ID without importing additional libraries
-                                    current_time = pd.Timestamp.now()
-                                    # Create a simple ID based on timestamp
-                                    st.session_state.request_id = f"MASK-{current_time.strftime('%Y%m%d')}-{current_time.strftime('%H%M%S')}"
-                                
-                                # Create a table with the requested columns if not already created
-                                if not st.session_state.request_data:
-                                    request_data = []
-                                    for i, col in enumerate(selected_columns, 1):
-                                        # Find data type for the column
-                                        col_data_type = ""
-                                        for row in edited_df.to_dict('records'):
-                                            if row["Column Name"] == col:
-                                                col_data_type = row["Data Type"]
-                                                break
-                                        
-                                        # Create the fully qualified table name
-                                        fully_qualified_table_name = f"{selected_database}.{selected_schema}.{selected_table}"
-                                        
-                                        request_data.append({
-                                            "Request ID": st.session_state.request_id,
-                                            "S.No": i,
-                                            "Fully_Qualified_Table_Name": fully_qualified_table_name,
-                                            "Field_name": col,
-                                            "Data_type": col_data_type
-                                        })
+                                # Add a button to generate the request
+                                if 'generate_request' not in st.session_state:
+                                    st.session_state.generate_request = False
                                     
-                                    st.session_state.request_data = request_data
-                                
-                                # Display the table
-                                st.subheader("Masking Request Details")
-                                st.dataframe(pd.DataFrame(st.session_state.request_data))
-                                
-                                # Option to export to CSV
-                                csv = pd.DataFrame(st.session_state.request_data).to_csv(index=False).encode('utf-8')
-                                st.download_button(
-                                    label="Download as CSV",
-                                    data=csv,
-                                    file_name=f"masking_request_{st.session_state.request_id}.csv",
-                                    mime="text/csv",
-                                    key="download_csv_button"
-                                )
-                                
-                                # Add a Submit button
-                                if st.button("Submit", key="submit_button") or st.session_state.submit_clicked:
-                                    # Store the submitted state
-                                    if not st.session_state.submit_clicked:
-                                        st.session_state.submit_clicked = True
+                                # Add a button to generate the request - disable if no user ID
+                                if st.button("Generate Masking Request", disabled=(not current_user)) or st.session_state.generate_request:
+                                    if not current_user and not st.session_state.generate_request:
+                                        st.error("Unable to retrieve your User ID. Please ensure you are logged in.")
+    
+                                    else:
+                                        st.session_state.generate_request = True
                                     
-                                    try:
-                                        # Check if this request ID already exists in the table
-                                        check_df = session.sql(f"""
-                                            SELECT COUNT(*) AS COUNT 
-                                            FROM OUR_FIRST_DB.TARGET_SCH.METADATA_TABLE 
-                                            WHERE Request_ID = '{st.session_state.request_id}'
-                                        """).collect()
+                                        # Generate a request ID if not already generated
+                                        if not st.session_state.request_id:
+                                            # Use current date/time for unique ID without importing additional libraries
+                                            current_time = pd.Timestamp.now()
+                                            # Create a simple ID based on timestamp
+                                            st.session_state.request_id = f"MASK-{current_time.strftime('%Y%m%d')}-{current_time.strftime('%H%M%S')}"
                                         
-                                        record_count = check_df[0]['COUNT'] if check_df else 0
+                                        # Create a table with the requested columns if not already created
+                                        if not st.session_state.request_data:
+                                            request_data = []
+                                            for i, col in enumerate(selected_columns, 1):
+                                                # Find data type for the column
+                                                col_data_type = ""
+                                                for row in edited_df.to_dict('records'):
+                                                    if row["Column Name"] == col:
+                                                        col_data_type = row["Data Type"]
+                                                        break
+                                                
+                                                request_data.append({
+                                                    "Request ID": st.session_state.request_id,
+                                                    "S.No": i,
+                                                    "Database_name": selected_database,
+                                                    "Schema_name": selected_schema,
+                                                    "Table_name": selected_table,
+                                                    "Field_name": col,
+                                                    "Data_type": col_data_type
+                                                })
+                                            
+                                            st.session_state.request_data = request_data
                                         
-                                        if record_count > 0:
-                                            # Data already exists - show warning
-                                            st.warning("This request has already been submitted. Multiple submissions are not allowed.")
-                                        else:
-                                            # Insert data using the correct column names from the DDL
-                                            for item in st.session_state.request_data:
-                                                session.sql(f"""
-                                                    INSERT INTO OUR_FIRST_DB.TARGET_SCH.METADATA_TABLE (
-                                                        Request_ID, S_No, Fully_Qualified_Table_Name, 
-                                                        Field_name, Data_type, User_ID
-                                                    ) VALUES (
-                                                        '{item["Request ID"]}', {item["S.No"]}, 
-                                                        '{item["Fully_Qualified_Table_Name"]}', 
-                                                        '{item["Field_name"]}', '{item["Data_type"]}', '{current_user}'
-                                                    )
-                                                """).collect()
-                                            
-                                            # Display success message
-                                            st.success(f"Masking request {st.session_state.request_id} submitted successfully!")
-                                            st.info("The request has been sent to the DB team for review.")
-                                            
-                                            # Send email notification with simpler HTML formatting
-                                            try:
-                                                # Prepare email content with simplified HTML
-                                                email_subject = f"Notification: New masking request has submitted"
+                                        # Display the table
+                                        st.subheader("Masking Request Details")
+                                        st.dataframe(pd.DataFrame(st.session_state.request_data))
+                                        
+                                        # Option to export to CSV
+                                        csv = pd.DataFrame(st.session_state.request_data).to_csv(index=False).encode('utf-8')
+                                        st.download_button(
+                                            label="Download as CSV",
+                                            data=csv,
+                                            file_name=f"masking_request_{st.session_state.request_id}.csv",
+                                            mime="text/csv",
+                                            key="download_csv_button"
+                                        )
+                                        
+                                        # Add a Submit button - ensure user ID is provided
+                                        if st.button("Submit", key="submit_button", disabled=(not current_user)) or st.session_state.submit_clicked:
+                                            if not current_user and not st.session_state.submit_clicked:
+                                                st.error("Please enter your User ID to submit the request.")
+                                            else:
+                                                # Store the submitted state
+                                                if not st.session_state.submit_clicked:
+                                                    st.session_state.submit_clicked = True
                                                 
-                                                # Count the number of columns
-                                                column_count = len(st.session_state.request_data)
-                                                
-                                                # Create a simple HTML-formatted email body
-                                                email_body = f"""
+                                                try:
+                                                    # Check if this request ID already exists in the table
+                                                    check_df = session.sql(f"""
+                                                        SELECT COUNT(*) AS COUNT 
+                                                        FROM OUR_FIRST_DB.TARGET_SCH.METADATA_TABLE 
+                                                        WHERE Request_ID = '{st.session_state.request_id}'
+                                                    """).collect()
+                                                    
+                                                    record_count = check_df[0]['COUNT'] if check_df else 0
+                                                    
+                                                    if record_count > 0:
+                                                        # Data already exists - show warning
+                                                        st.warning("This request has already been submitted. Multiple submissions are not allowed.")
+                                                    else:
+                                                        # Insert data using the correct column names from the DDL
+                                                        for item in st.session_state.request_data:
+                                                            session.sql(f"""
+                                                                INSERT INTO OUR_FIRST_DB.TARGET_SCH.METADATA_TABLE (
+                                                                    Request_ID, S_No, Database_name, Schema_name, 
+                                                                    Table_name, Field_name, Data_type, User_ID
+                                                                ) VALUES (
+                                                                    '{item["Request ID"]}', {item["S.No"]}, '{item["Database_name"]}', 
+                                                                    '{item["Schema_name"]}', '{item["Table_name"]}', 
+                                                                    '{item["Field_name"]}', '{item["Data_type"]}', '{current_user}'
+                                                                )
+                                                            """).collect()
+                                                        
+                                                        # Display success message
+                                                        st.success(f"Masking request {st.session_state.request_id} submitted successfully!")
+                                                        st.info("The request has been sent to the DB team for review.")
+                                                        
+                                                        # Send email notification with simpler HTML formatting
+                                                        try:
+                                                            # Prepare email content with simplified HTML
+                                                            email_subject = f"Notification: New masking request has submitted"
+                                                            
+                                                            # Count the number of columns
+                                                            column_count = len(st.session_state.request_data)
+                                                            
+                                                            # Create a simple HTML-formatted email body
+                                                            email_body = f"""
 <html>
 <body style="font-family: Arial, sans-serif; padding: 20px;">
     <h3 style="color: #0066cc;">Snowflake Masking Request</h3>
@@ -240,7 +269,7 @@ try:
     <p>New masking request has submitted by user <b>{current_user}</b></p>
     <ul>
         <li>Masking ID: <b>{st.session_state.request_id}</b></li>
-        <li>Table: <b>{selected_database}.{selected_schema}.{selected_table}</b></li>
+        <li>Database: <b>{selected_database}.{selected_schema}.{selected_table}</b></li>
         <li>Number of columns: <b>{column_count}</b></li>
     </ul>
     <p>Thank you,<br>
@@ -248,32 +277,53 @@ try:
 </body>
 </html>
 """
+                                                            
+                                                            # Use the simple_email_integration to send the HTML email
+                                                            session.sql(f"""
+                                                                CALL SYSTEM$SEND_EMAIL(
+                                                                    'simple_email_integration',
+                                                                    'pspt1398@gmail.com',
+                                                                    '{email_subject}',
+                                                                    '{email_body}',
+                                                                    'text/html'
+                                                                )
+                                                            """).collect()
+                                                            
+                                                            st.success("Email notification sent successfully!")
+                                                        except Exception as e:
+                                                            st.warning(f"Email notification could not be sent: {e}")
+                                                            st.info("Please ensure your Snowflake account has email integration configured and your role has proper permissions.")
+                                                        
+                                                        # Set flag to show the new request options
+                                                        st.session_state.show_new_request_options = True
+                                                        st.rerun()
                                                 
-                                                # Use the simple_email_integration to send the HTML email
-                                                session.sql(f"""
-                                                    CALL SYSTEM$SEND_EMAIL(
-                                                        'simple_email_integration',
-                                                        'pspt1398@gmail.com',
-                                                        '{email_subject}',
-                                                        '{email_body}',
-                                                        'text/html'
-                                                    )
-                                                """).collect()
-                                                
-                                                st.success("Email notification sent successfully!")
-                                            except Exception as e:
-                                                st.warning(f"Email notification could not be sent: {e}")
-                                                st.info("Please ensure your Snowflake account has email integration configured and your role has proper permissions.")
-                                    
-                                    except Exception as e:
-                                        st.error(f"Error: {e}")
-                                    
+                                                except Exception as e:
+                                                    st.error(f"Error: {e}")
+                                        
+                            else:
+                                st.info("Please select columns for masking using the checkboxes.")
                         else:
-                            st.info("Please select columns for masking using the checkboxes.")
-                    else:
-                        st.warning("This table has no columns available.")
-                except Exception as e:
-                    st.error(f"Error retrieving columns: {e}")
+                            st.warning("This table has no columns available.")
+                    except Exception as e:
+                        st.error(f"Error retrieving columns: {e}")
+    
+    # Display the "Request another table" options after form submission
+    if st.session_state.show_new_request_options:
+        st.markdown("---")
+        st.subheader("Would you like to request masking for another table?")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Yes", key="yes_button"):
+                reset_form()
+                
+        with col2:
+            if st.button("No", key="no_button"):
+                st.markdown("---")
+                st.success("Thank you for using the Snowflake Masking Policy Request Portal!")
+                st.info("You can close this page or refresh to start a new session.")
 
 except Exception as e:
     st.error(f"Error connecting to Snowflake: {e}")
