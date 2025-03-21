@@ -1,0 +1,6 @@
+# Snowflake integration
+snowflake-snowpack-python >=1.28.0
+
+# Core packages
+streamlit>=1.39.0
+pandas>=2.2.3
