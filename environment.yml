@@ -1,0 +1,15 @@
+# Snowflake Streamlit environment configuration
+name: snowflake-streamlit-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - pip:
+    - streamlit>=1.18.0
+    - pandas>=1.3.0
+    - numpy>=1.20.0
+    - plotly>=5.5.0
+    - matplotlib>=3.5.0
+    - snowflake-snowpark-python
